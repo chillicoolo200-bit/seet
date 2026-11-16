@@ -1,0 +1,62 @@
+name: 8C temporary Blender build
+
+on:
+  workflow_dispatch:
+    inputs:
+      quality:
+        description: "Temporary blockout build quality"
+        required: true
+        type: choice
+        options:
+          - mobile
+          - standard
+        default: mobile
+
+permissions:
+  contents: read
+
+concurrency:
+  group: 8c-blender-build
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build temporary 8C GLB blockout
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out this isolated branch
+        uses: actions/checkout@v4
+
+      - name: Install Blender
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y blender
+          blender --version
+
+      - name: Generate the 8C placeholder blockout
+        run: |
+          mkdir -p dist
+          blender --background --factory-startup --python tools/8c_blender_build.py -- --output dist/8c-blockout.glb --quality "${{ inputs.quality }}"
+
+      - name: Verify GLB artifact
+        run: |
+          test -s dist/8c-blockout.glb
+          python3 - <<'PY'
+          import struct
+          from pathlib import Path
+          p = Path("dist/8c-blockout.glb")
+          data = p.read_bytes()
+          assert data[:4] == b"glTF", "Not a GLB file"
+          version, length = struct.unpack_from("<II", data, 4)
+          assert version == 2 and length == len(data), "Invalid GLB header/length"
+          print(f"Verified GLB v{version}: {len(data)} bytes")
+          PY
+
+      - name: Upload generated GLB
+        uses: actions/upload-artifact@v4
+        with:
+          name: 8c-temporary-glb-${{ inputs.quality }}
+          path: dist/8c-blockout.glb
+          if-no-files-found: error
+          retention-days: 7
